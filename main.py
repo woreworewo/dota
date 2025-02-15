@@ -1,15 +1,28 @@
 import asyncio
+from telegram.ext import Application, CommandHandler
 from cache_manager import update_cache, cache_player_data
 from notify_game import start_notify_game
 from track_dota import start_track_dota
 from utils import log, load_config
+from commands import last_match_command  # Import last match command
 
 # Load config
 config = load_config()
 tracked_players = config.get("steam_user", {})
 
+TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"  # Replace with your actual token
+
 async def main():
     log("Starting bot...")
+
+    # Initialize Telegram bot
+    application = Application.builder().token(TOKEN).build()
+
+    # Register commands
+    application.add_handler(CommandHandler("lastmatch", last_match_command))
+
+    # Start bot polling
+    bot_task = asyncio.create_task(application.run_polling())
 
     # Run initial cache update
     log("Updating full cache...")
@@ -23,7 +36,8 @@ async def main():
     log("Starting game tracking modules...")
     await asyncio.gather(
         start_notify_game(),
-        start_track_dota()
+        start_track_dota(),
+        bot_task  # Ensure bot runs as part of async tasks
     )
 
 async def schedule_cache_updates():
@@ -44,4 +58,5 @@ async def check_new_matches():
         await asyncio.sleep(5 * 60)  # Wait 5 minutes
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
