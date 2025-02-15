@@ -1,5 +1,4 @@
 import asyncio
-import subprocess
 from cache_manager import update_cache, cache_player_data
 from notify_game import start_notify_game
 from track_dota import start_track_dota
@@ -11,9 +10,6 @@ tracked_players = config.get("steam_user", {})
 
 async def main():
     log("Starting bot...")
-
-    # Start log watcher in background
-    start_log_watcher()
 
     # Run initial cache update
     log("Updating full cache...")
@@ -29,14 +25,6 @@ async def main():
         start_notify_game(),
         start_track_dota()
     )
-
-def start_log_watcher():
-    """Start log_watcher.py as a background process."""
-    try:
-        subprocess.Popen(["python", "log_watcher.py"])
-        log("Log watcher started successfully.")
-    except Exception as e:
-        log(f"Failed to start log watcher: {e}")
 
 async def schedule_cache_updates():
     """Update full cache (heroes, items, patches, player data) every 6 hours."""
