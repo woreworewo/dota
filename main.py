@@ -34,7 +34,7 @@ async def main():
     asyncio.create_task(start_notify_game())
     asyncio.create_task(start_track_dota())
 
-    # Run bot polling without creating a new event loop
+    # Run bot polling (it manages its own event loop)
     await application.run_polling()
 
 async def schedule_cache_updates():
@@ -55,10 +55,4 @@ async def check_new_matches():
         await asyncio.sleep(5 * 60)  # Wait 5 minutes
 
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_running_loop()  # Use existing event loop if available
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(main())
+    asyncio.run(main())  # Correctly runs the bot with a clean event loop
