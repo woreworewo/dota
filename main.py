@@ -5,9 +5,9 @@ from dotenv import load_dotenv
 from cache_manager import update_cache, cache_player_data
 from notify_game import start_notify_game
 from track_dota import start_track_dota
-from commands import last_match_command  # Import command handler
 from utils import log, load_config
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application
+from commands import setup_command_handlers  # Import function to setup commands
 
 # Load .env
 load_dotenv()
@@ -24,7 +24,7 @@ async def main():
     log("Starting bot...")
 
     # Start Telegram bot in a separate thread
-    telegram_app = setup_telegram_commands()
+    telegram_app = setup_telegram_commands()  # This will setup the commands
     loop = asyncio.get_event_loop()
     loop.create_task(run_telegram_bot(telegram_app))
 
@@ -46,7 +46,7 @@ async def main():
 def setup_telegram_commands():
     """Setup Telegram bot and command handlers."""
     app = Application.builder().token(TOKEN).build()
-    app.add_handler(CommandHandler("lastmatch", last_match_command))
+    setup_command_handlers(app)  # Register command handlers here
     log("Telegram bot is ready.")
     return app
 
