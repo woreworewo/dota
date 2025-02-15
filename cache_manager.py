@@ -128,35 +128,11 @@ async def cache_player_data(session, steam_id):
     if wl_data:
         player_data["win_loss"] = wl_data
 
-    # Fetch recent matches to determine last match ID
-    recent_matches = await fetch_data(session, f"{API_BASE_URL}/players/{account_id}/recentMatches")
-    if recent_matches:
-        latest_match_id = recent_matches[0]["match_id"]
-        previous_match_id = player_data.get("last_match_id")
-
-        # Only fetch match data if it's a new match
-        if latest_match_id != previous_match_id:
-            await cache_match_data(session, latest_match_id)  # Fetch match data if not cached
-            player_data["last_match_id"] = latest_match_id  # Update last match ID
-
     save_cache(player_file, player_data)
     log(f"[{get_current_time()}] Player data cached: {steam_id}")
 
-async def cache_match_data(session, match_id):
-    """Fetch and cache match details only if not already cached."""
-    match_file = MATCHES_DIR / f"{match_id}.json"
-    if match_file.exists():
-        log(f"[{get_current_time()}] Skipping match {match_id}, already cached.")
-        return
-
-    log(f"[{get_current_time()}] Fetching match data for Match ID: {match_id}...")
-    match_data = await fetch_data(session, f"{API_BASE_URL}/matches/{match_id}")
-    if match_data:
-        save_cache(match_file, match_data)
-        log(f"[{get_current_time()}] Match data cached: {match_id}")
-
 async def update_cache():
-    """Update all caches in parallel using a single session."""
+    """Update all caches in parallel except last match data."""
     log(f"[{get_current_time()}] Starting cache update...")
 
     async with aiohttp.ClientSession() as session:
@@ -173,5 +149,10 @@ async def update_cache():
 
     log(f"[{get_current_time()}] Cache update completed.")
 
+# Add the update cache command handler
+async def handle_update_cache_command():
+    """Handle the update cache command."""
+    await update_cache()
+
 if __name__ == "__main__":
-    asyncio.run(update_cache())
+    asyncio.run(handle_update_cache_command())
