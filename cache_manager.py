@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import json
+import random
 from pathlib import Path
 from utils import steam_id_to_account_id, log, load_config, get_current_time
 
@@ -19,6 +20,14 @@ CACHE_FILES = {
     "items": CACHE_DIR / "items.json",
     "patches": CACHE_DIR / "patches.json"
 }
+
+# Free Proxy Pool (Replace with working ones)
+PROXIES = [
+    "http://proxy1:port",
+    "http://proxy2:port",
+    "http://proxy3:port",
+    "http://proxy4:port"
+]
 
 # Load config
 config = load_config()
@@ -43,26 +52,29 @@ def save_cache(file_path, data):
         log(f"[{get_current_time()}] Error saving cache {file_path}: {e}", "error")
 
 async def fetch_data(session, url, retries=3):
-    """Fetch data from API with retry mechanism and exponential backoff."""
-    if session is None:
-        async with aiohttp.ClientSession() as temp_session:
-            return await fetch_data(temp_session, url, retries)
-
+    """Fetch data from API using proxy rotation, retrying on failure."""
     for attempt in range(retries):
-        try:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    return await response.json()
-                elif response.status == 429:
-                    retry_after = int(response.headers.get("Retry-After", 10))  # Default to 10s
-                    log(f"[{get_current_time()}] Rate limited. Retrying in {retry_after} seconds...", "warning")
-                    await asyncio.sleep(retry_after)
-                else:
-                    log(f"[{get_current_time()}] Attempt {attempt + 1}: Failed to fetch {url} - Status Code: {response.status}", "warning")
-        except aiohttp.ClientError as e:
-            log(f"[{get_current_time()}] Attempt {attempt + 1}: Network error while fetching {url}: {e}", "error")
+        proxy = random.choice(PROXIES)  # Pick a random proxy
+        proxy_connector = aiohttp.ProxyConnector.from_url(proxy)  # Set proxy
+        
+        async with aiohttp.ClientSession(connector=proxy_connector) as proxy_session:
+            try:
+                async with proxy_session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    elif response.status == 429:
+                        retry_after = int(response.headers.get("Retry-After", 10))
+                        log(f"[{get_current_time()}] Rate-limited by OpenDota API. Retrying in {retry_after} seconds...", "warning")
+                        await asyncio.sleep(retry_after)
+                    else:
+                        log(f"[{get_current_time()}] Attempt {attempt + 1}: Proxy {proxy} failed - Status {response.status}", "warning")
+            except aiohttp.ClientError as e:
+                log(f"[{get_current_time()}] Attempt {attempt + 1}: Proxy {proxy} error: {e}", "error")
+        
         await asyncio.sleep(2 ** attempt)  # Exponential backoff (2, 4, 8 sec)
-    return None
+    
+    log(f"[{get_current_time()}] All proxies failed for {url}.", "error")
+    return None  # Return None if all proxies fail
 
 async def cache_heroes(session):
     log(f"[{get_current_time()}] Fetching hero data...")
