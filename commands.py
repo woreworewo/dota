@@ -3,9 +3,13 @@ import json
 from pathlib import Path
 from telegram import Update
 from telegram.ext import CallbackContext
+from utils import load_config
 
 CACHE_DIR = Path("cache/matches")
 
+# Load tracked players from config
+config = load_config()
+tracked_players = config.get("steam_user", {})
 
 async def get_last_match_data():
     """Fetch the latest match data from cache/matches/."""
@@ -14,11 +18,11 @@ async def get_last_match_data():
         if not match_files:
             return "No match data found."
 
-        latest_match_file = match_files[0]  # Ambil file terbaru
+        latest_match_file = match_files[0]
         with latest_match_file.open("r", encoding="utf-8") as f:
             match_data = json.load(f)
 
-        if not match_data:  # Cek jika file kosong
+        if not match_data:
             return "Match data is empty."
 
         return format_match_stats(match_data)
@@ -28,7 +32,7 @@ async def get_last_match_data():
 
 
 def format_match_stats(match_data):
-    """Format the match stats for Telegram output."""
+    """Format the match stats for Telegram output, filtering only tracked players."""
     try:
         match_id = match_data.get("match_id", "Unknown")
         duration = match_data.get("duration", 0) // 60
@@ -38,12 +42,19 @@ def format_match_stats(match_data):
         if not players:
             return "No player data found."
 
-        stats = [
-            f"*{p.get('personaname', 'Unknown')}* ({p.get('hero_name', 'Unknown')}) – "
-            f"{p.get('kills', 0)}/{p.get('deaths', 0)}/{p.get('assists', 0)} KDA, "
-            f"{p.get('gold_per_min', 0)} GPM, {p.get('xp_per_min', 0)} XPM"
-            for p in players
-        ]
+        stats = []
+        for p in players:
+            steam_id = str(p.get("account_id", ""))
+            if steam_id in tracked_players:  # Only include tracked players
+                nickname = tracked_players[steam_id]
+                hero = p.get("hero_name", "Unknown")
+                kills, deaths, assists = p.get("kills", 0), p.get("deaths", 0), p.get("assists", 0)
+                gpm, xpm = p.get("gold_per_min", 0), p.get("xp_per_min", 0)
+
+                stats.append(f"*{nickname}* ({hero}) – {kills}/{deaths}/{assists} KDA, {gpm} GPM, {xpm} XPM")
+
+        if not stats:
+            return "No tracked players found in the last match."
 
         stats_text = "\n".join(stats)
         return f"*Match ID:* {match_id}\n*Duration:* {duration} min\n*Winner:* {winner}\n\n{stats_text}"
@@ -53,7 +64,7 @@ def format_match_stats(match_data):
 
 
 async def last_match_command(update: Update, context: CallbackContext):
-    """Telegram command to fetch and send last match stats."""
+    """Telegram command to fetch and send last match stats for tracked players."""
     chat_id = update.message.chat_id
-    message = await get_last_match_data()  # Gunakan await untuk fungsi async
+    message = await get_last_match_data()
     await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
