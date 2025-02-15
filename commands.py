@@ -3,6 +3,7 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 from utils import load_config, cache_manager  # Assuming cache_manager is imported
+from telegram_notifier import TelegramNotifier  # Adjust according to your actual import path
 
 CACHE_DIR = Path("cache/matches")
 HEROES_FILE = Path("cache/heroes.json")
@@ -141,7 +142,7 @@ def format_match_stats(match_data):
 
         stats = []
         for p in players:
-            account_id = str(p.get("account_id", ""))
+            account_id = str(p.get("account_id", ""))  # Account ID as string
             if account_id in tracked_players:  # Only include tracked players
                 nickname = tracked_players[account_id]
                 hero_id = p.get("hero_id", -1)  # Use hero_id instead of hero_name
