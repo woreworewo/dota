@@ -1,4 +1,3 @@
-import os
 import json
 from pathlib import Path
 from telegram import Update
@@ -9,7 +8,12 @@ CACHE_DIR = Path("cache/matches")
 
 # Load tracked players from config
 config = load_config()
-tracked_players = config.get("steam_user", {})
+tracked_players_64 = config.get("steam_user", {})
+
+# Convert Steam 64-bit IDs to 32-bit account IDs
+STEAM_ID_OFFSET = 76561197960265728
+tracked_players = {str(int(steam_id) - STEAM_ID_OFFSET): nickname for steam_id, nickname in tracked_players_64.items()}
+
 
 async def get_last_match_data():
     """Fetch the latest match data from cache/matches/."""
@@ -44,9 +48,9 @@ def format_match_stats(match_data):
 
         stats = []
         for p in players:
-            steam_id = str(p.get("account_id", ""))
-            if steam_id in tracked_players:  # Only include tracked players
-                nickname = tracked_players[steam_id]
+            account_id = str(p.get("account_id", ""))
+            if account_id in tracked_players:  # Only include tracked players
+                nickname = tracked_players[account_id]
                 hero = p.get("hero_name", "Unknown")
                 kills, deaths, assists = p.get("kills", 0), p.get("deaths", 0), p.get("assists", 0)
                 gpm, xpm = p.get("gold_per_min", 0), p.get("xp_per_min", 0)
