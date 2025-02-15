@@ -83,6 +83,32 @@ async def untrack_player(update: Update, context: CallbackContext):
     
     await update.message.reply_text(f"Stopped tracking player with Steam ID: {steam_id}")
 
+async def change_nickname(update: Update, context: CallbackContext):
+    """Change the nickname of a tracked player."""
+    if len(context.args) != 2:
+        await update.message.reply_text("Usage: /nickname <current_nickname> <new_nickname>")
+        return
+
+    current_nickname = context.args[0]
+    new_nickname = context.args[1]
+
+    # Find the Steam ID corresponding to the current nickname
+    steam_id = None
+    for player_id, nickname in tracked_players_64.items():
+        if nickname == current_nickname:
+            steam_id = player_id
+            break
+
+    if not steam_id:
+        await update.message.reply_text(f"No player found with nickname: {current_nickname}")
+        return
+
+    # Update the nickname in the config file
+    tracked_players_64[steam_id] = new_nickname
+    update_config({"steam_user": tracked_players_64})
+
+    await update.message.reply_text(f"Nickname for {current_nickname} updated to {new_nickname}")
+
 async def get_last_match_data():
     """Fetch the latest match data from cache/matches/."""
     try:
@@ -146,3 +172,4 @@ def setup_command_handlers(dispatcher):
     dispatcher.add_handler(CommandHandler("lm", last_match_command))
     dispatcher.add_handler(CommandHandler("track", track_player))
     dispatcher.add_handler(CommandHandler("untrack", untrack_player))
+    dispatcher.add_handler(CommandHandler("nickname", change_nickname))
