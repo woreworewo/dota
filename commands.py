@@ -28,6 +28,61 @@ def load_heroes():
 # Hero dictionary (id -> hero name)
 heroes_dict = load_heroes()
 
+# Update the config file with new data
+def update_config(new_data):
+    """Update the config.json file with new data."""
+    try:
+        with open('config.json', 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+        
+        config_data.update(new_data)
+        
+        with open('config.json', 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=4)
+        
+        return "Config updated successfully!"
+    except Exception as e:
+        return f"Error updating config: {e}"
+
+async def track_player(update: Update, context: CallbackContext):
+    """Track a player by Steam 64-bit ID."""
+    if len(context.args) != 2:
+        await update.message.reply_text("Usage: /track <steam_id> <nickname>")
+        return
+    
+    steam_id = context.args[0]
+    nickname = context.args[1]
+    
+    # Check if player is already tracked
+    if steam_id in tracked_players_64:
+        await update.message.reply_text(f"{nickname} is already being tracked.")
+        return
+    
+    # Add player to the config file
+    tracked_players_64[steam_id] = nickname
+    update_config({"steam_user": tracked_players_64})
+    
+    await update.message.reply_text(f"Now tracking {nickname} (Steam ID: {steam_id})")
+
+async def untrack_player(update: Update, context: CallbackContext):
+    """Untrack a player by Steam 64-bit ID."""
+    if len(context.args) != 1:
+        await update.message.reply_text("Usage: /untrack <steam_id>")
+        return
+    
+    steam_id = context.args[0]
+    
+    # Check if player is being tracked
+    if steam_id not in tracked_players_64:
+        await update.message.reply_text(f"No player found with Steam ID: {steam_id}")
+        return
+    
+    # Remove player from the config file
+    del tracked_players_64[steam_id]
+    update_config({"steam_user": tracked_players_64})
+    
+    await update.message.reply_text(f"Stopped tracking player with Steam ID: {steam_id}")
+
 async def get_last_match_data():
     """Fetch the latest match data from cache/matches/."""
     try:
@@ -68,7 +123,7 @@ def format_match_stats(match_data):
                 kills, deaths, assists = p.get("kills", 0), p.get("deaths", 0), p.get("assists", 0)
                 gpm, xpm = p.get("gold_per_min", 0), p.get("xp_per_min", 0)
 
-                stats.append(f"*{nickname}* ({hero}) – {kills}/{deaths}/{assists} KDA, {gpm} GPM, {xpm} XPM")
+                stats.append(f"*{nickname}* ({hero}) – {kills}/{deaths}/{assists} *KDA*, {gpm} *GPM*, {xpm} *XPM*")
 
         if not stats:
             return "No tracked players found in the last match."
@@ -89,3 +144,5 @@ def setup_command_handlers(dispatcher):
     """Setup command handlers for the Telegram bot."""
     dispatcher.add_handler(CommandHandler("lastmatch", last_match_command))
     dispatcher.add_handler(CommandHandler("lm", last_match_command))
+    dispatcher.add_handler(CommandHandler("track", track_player))
+    dispatcher.add_handler(CommandHandler("untrack", untrack_player))
