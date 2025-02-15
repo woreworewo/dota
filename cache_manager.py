@@ -27,10 +27,13 @@ config = load_config()
 tracked_players = config.get("steam_user", {})
 
 # Rate limiting setup
+DAILY_LIMIT = 2000  # 2,000 free calls per day
 RATE_LIMIT = 60  # 60 requests per minute
 request_queue = Queue()
 last_request_time = time.time()
 requests_sent = 0
+daily_requests_sent = 0
+last_reset_time = time.time()
 
 def load_cache(file_path):
     """Load cache from JSON file, return empty dict if file is missing or corrupted."""
@@ -51,23 +54,37 @@ def save_cache(file_path, data):
         log(f"[{get_current_time()}] Error saving cache {file_path}: {e}", "error")
 
 async def rate_limit_check():
-    """Ensures we respect the rate limit of 60 requests per minute."""
-    global requests_sent, last_request_time
+    """Ensures we respect the rate limit of 60 requests per minute and 2000 daily calls."""
+    global requests_sent, last_request_time, daily_requests_sent, last_reset_time
 
     while True:
+        current_time = time.time()
+        
+        # Reset the daily limit at midnight
+        if current_time - last_reset_time >= 86400:
+            last_reset_time = current_time
+            daily_requests_sent = 0
+            log(f"[{get_current_time()}] Daily limit reset.")
+        
         # Check the number of requests sent within the last minute
-        if time.time() - last_request_time > 60:
-            last_request_time = time.time()
+        if current_time - last_request_time > 60:
+            last_request_time = current_time
             requests_sent = 0
 
-        if requests_sent >= RATE_LIMIT:
-            sleep_time = 60 - (time.time() - last_request_time)
-            log(f"[{get_current_time()}] Rate limit reached, sleeping for {sleep_time:.2f} seconds...", "warning")
+        if daily_requests_sent >= DAILY_LIMIT:
+            sleep_time = 86400 - (current_time - last_reset_time)  # Sleep until the next day
+            log(f"[{get_current_time()}] Daily API limit reached, sleeping for {sleep_time:.2f} seconds...", "warning")
             await asyncio.sleep(sleep_time)
         
+        if requests_sent >= RATE_LIMIT:
+            sleep_time = 60 - (current_time - last_request_time)
+            log(f"[{get_current_time()}] Rate limit reached, sleeping for {sleep_time:.2f} seconds...", "warning")
+            await asyncio.sleep(sleep_time)
+
         # Dequeue and send the request
         await request_queue.get()
         requests_sent += 1
+        daily_requests_sent += 1
         await asyncio.sleep(1)  # Small delay to avoid burst traffic
 
 async def fetch_data(session, url, retries=3):
