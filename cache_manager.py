@@ -44,10 +44,6 @@ def save_cache(file_path, data):
 
 async def fetch_data(session, url, retries=3):
     """Fetch data from API with retry mechanism and exponential backoff."""
-    if session is None:
-        async with aiohttp.ClientSession() as temp_session:
-            return await fetch_data(temp_session, url, retries)
-
     for attempt in range(retries):
         try:
             async with session.get(url) as response:
@@ -65,6 +61,7 @@ async def fetch_data(session, url, retries=3):
     return None
 
 async def cache_heroes(session):
+    """Fetch and cache hero data."""
     log(f"[{get_current_time()}] Fetching hero data...")
     data = await fetch_data(session, f"{API_BASE_URL}/heroes")
     if data:
@@ -72,6 +69,7 @@ async def cache_heroes(session):
         log(f"[{get_current_time()}] Hero data updated.")
 
 async def cache_items(session):
+    """Fetch and cache item data."""
     log(f"[{get_current_time()}] Fetching item data...")
     data = await fetch_data(session, f"{API_BASE_URL}/constants/items")
     if data:
@@ -79,6 +77,7 @@ async def cache_items(session):
         log(f"[{get_current_time()}] Item data updated.")
 
 async def cache_patches(session):
+    """Fetch and cache patch data."""
     log(f"[{get_current_time()}] Fetching patch data...")
     data = await fetch_data(session, f"{API_BASE_URL}/constants/patchnotes")
     if data:
@@ -93,17 +92,18 @@ async def cache_player_data(session, steam_id):
 
     log(f"[{get_current_time()}] Fetching data for Steam ID: {steam_id}...")
 
-    # Fetch profile and win/loss data
-    profile_data = await fetch_data(session, f"{API_BASE_URL}/players/{account_id}")
-    wl_data = await fetch_data(session, f"{API_BASE_URL}/players/{account_id}/wl")
+    # Fetch profile, win/loss, and recent matches data in parallel
+    profile_data, wl_data, recent_matches = await asyncio.gather(
+ fetch_data(session, f"{API_BASE_URL}/players/{account_id}"),
+        fetch_data(session, f"{API_BASE_URL}/players/{account_id}/wl"),
+        fetch_data(session, f"{API_BASE_URL}/players/{account_id}/recentMatches")
+    )
 
     if profile_data:
         player_data.update(profile_data)
     if wl_data:
         player_data["win_loss"] = wl_data
 
-    # Fetch recent matches to determine last match ID
-    recent_matches = await fetch_data(session, f"{API_BASE_URL}/players/{account_id}/recentMatches")
     if recent_matches:
         latest_match_id = recent_matches[0]["match_id"]
         previous_match_id = player_data.get("last_match_id")
