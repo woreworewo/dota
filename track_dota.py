@@ -1,6 +1,8 @@
 import os
+import json
 import asyncio
 import aiohttp
+from datetime import datetime, timedelta
 from utils import load_config, TelegramNotifier, get_current_time, log
 
 # Load environment variables
@@ -16,11 +18,25 @@ if not STEAM_API_KEY:
 
 notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
-# Load steam user list from config.json
+# Load Steam user list from config.json
 config = load_config()
 STEAM_USERS = config.get("steam_user", {})
 
-dota_playtime = {}
+PLAYTIME_FILE = "playtime_data.json"
+
+# Load or initialize stored playtime data
+def load_playtime_data():
+    if os.path.exists(PLAYTIME_FILE):
+        with open(PLAYTIME_FILE, "r") as file:
+            return json.load(file)
+    return {}
+
+# Save playtime data to JSON
+def save_playtime_data(data):
+    with open(PLAYTIME_FILE, "w") as file:
+        json.dump(data, file, indent=4)
+
+dota_playtime = load_playtime_data()
 
 async def fetch_player_summaries():
     """Fetches Steam player summaries using the Steam API with rate-limit handling."""
@@ -37,7 +53,7 @@ async def fetch_player_summaries():
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=10) as response:
                     if response.status == 429:
-                        log("Rate-limited by Steam API. Retrying in {backoff} seconds...", "warning")
+                        log(f"Rate-limited by Steam API. Retrying in {backoff} seconds...", "warning")
                         await asyncio.sleep(backoff)
                         backoff = min(backoff * 2, 60)  # Exponential backoff, max 60s
                         continue
@@ -51,7 +67,7 @@ async def fetch_player_summaries():
             return []
 
 async def track_dota_playtime():
-    """Tracks the playtime of Dota 2 players."""
+    """Tracks the playtime of Dota 2 players and stores data persistently."""
     while True:
         players = await fetch_player_summaries()
         if not players:
@@ -65,37 +81,58 @@ async def track_dota_playtime():
 
             if game == "Dota 2":
                 if steam_id not in dota_playtime:
-                    dota_playtime[steam_id] = {"start_time": get_current_time(), "total": 0}
+                    dota_playtime[steam_id] = {"sessions": [], "total": 0}
                     log(f"{nickname} started playing Dota 2.")
 
-            elif steam_id in dota_playtime:
-                start_time = dota_playtime[steam_id]["start_time"]
-                play_duration = (get_current_time() - start_time).total_seconds() / 3600
-                dota_playtime[steam_id]["total"] += play_duration
-                total_playtime = round(dota_playtime[steam_id]["total"], 2)
+                # Add session start time
+                dota_playtime[steam_id]["sessions"].append({"start": get_current_time().isoformat()})
 
-                log(f"{nickname} stopped playing. Total session time: {round(play_duration, 2)} hours. Total: {total_playtime} hours.")
-                
-                dota_playtime.pop(steam_id)
+            elif steam_id in dota_playtime:
+                last_session = dota_playtime[steam_id]["sessions"][-1]
+                if "end" not in last_session:
+                    start_time = datetime.fromisoformat(last_session["start"])
+                    play_duration = (get_current_time() - start_time).total_seconds() / 3600
+                    dota_playtime[steam_id]["total"] += play_duration
+
+                    last_session["end"] = get_current_time().isoformat()
+                    last_session["duration"] = round(play_duration, 2)
+
+                    total_playtime = round(dota_playtime[steam_id]["total"], 2)
+                    log(f"{nickname} stopped playing. Session: {round(play_duration, 2)}h. Total: {total_playtime}h.")
+
+                    # Save data to file
+                    save_playtime_data(dota_playtime)
 
         await asyncio.sleep(60)
 
 async def send_daily_report():
-    """Sends a daily playtime report at 08:00 AM (server time)."""
+    """Sends a daily playtime report at 08:00 AM and removes data older than 30 days."""
     while True:
         now = get_current_time()
         if now.hour == 8 and now.minute == 0:
             message = "*Dota 2 Playtime Yesterday*\n"
-            for steam_id, data in dota_playtime.items():
+            cutoff_date = now - timedelta(days=30)
+
+            for steam_id, data in list(dota_playtime.items()):
+                # Remove old sessions
+                data["sessions"] = [s for s in data["sessions"] if datetime.fromisoformat(s["start"]) >= cutoff_date]
+                data["total"] = sum(s["duration"] for s in data["sessions"] if "duration" in s)
+
                 nickname = STEAM_USERS.get(steam_id, f"Unknown ({steam_id})")
                 total_playtime = round(data["total"], 2)
                 message += f"- *{nickname}:* {total_playtime} hours\n"
 
+                # If no recent sessions, remove player from tracking
+                if not data["sessions"]:
+                    del dota_playtime[steam_id]
+
+            # Send report if there's data
             if dota_playtime:
                 await notifier.send_message(message)
                 log("Sent daily playtime report.")
 
-            dota_playtime.clear()
+            # Save cleaned-up data
+            save_playtime_data(dota_playtime)
 
         await asyncio.sleep(60)
 
