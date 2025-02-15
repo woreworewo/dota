@@ -1,5 +1,7 @@
 import asyncio
 import nest_asyncio
+import os
+from dotenv import load_dotenv
 from cache_manager import update_cache, cache_player_data
 from notify_game import start_notify_game
 from track_dota import start_track_dota
@@ -7,17 +9,24 @@ from commands import last_match_command  # Import command handler
 from utils import log, load_config
 from telegram.ext import Application, CommandHandler
 
+# Load .env
+load_dotenv()
+
 # Load config
 config = load_config()
 tracked_players = config.get("steam_user", {})
-TOKEN = config.get("telegram_bot_token")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", config.get("telegram_bot_token"))
+
+if not TOKEN or ":" not in TOKEN:
+    raise ValueError("Invalid or missing Telegram bot token! Please check your .env or config.json")
 
 async def main():
     log("Starting bot...")
 
-    # Start Telegram bot
+    # Start Telegram bot in a separate thread
     telegram_app = setup_telegram_commands()
-    asyncio.create_task(telegram_app.run_polling())  # Run Telegram bot asynchronously
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_telegram_bot(telegram_app))
 
     # Run initial cache update
     log("Updating full cache...")
@@ -37,12 +46,14 @@ async def main():
 def setup_telegram_commands():
     """Setup Telegram bot and command handlers."""
     app = Application.builder().token(TOKEN).build()
-
-    # Register commands
     app.add_handler(CommandHandler("lastmatch", last_match_command))
-
     log("Telegram bot is ready.")
     return app
+
+async def run_telegram_bot(app):
+    """Run Telegram bot polling in an async function."""
+    log("Starting Telegram bot polling...")
+    await app.run_polling()
 
 async def schedule_cache_updates():
     """Update full cache (heroes, items, patches, player data) every 6 hours."""
@@ -63,5 +74,4 @@ async def check_new_matches():
 
 if __name__ == "__main__":
     nest_asyncio.apply()  # Prevent event loop conflicts
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    asyncio.run(main())
