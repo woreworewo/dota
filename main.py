@@ -3,31 +3,22 @@ import nest_asyncio
 from cache_manager import update_cache, cache_player_data
 from notify_game import start_notify_game
 from track_dota import start_track_dota
-from commands import last_match_command
+from commands import last_match_command  # Import command handler
 from utils import log, load_config
-from telegram import Bot
-from telegram.ext import Updater, CommandHandler
+from telegram.ext import Application, CommandHandler
 
 # Load config
 config = load_config()
 tracked_players = config.get("steam_user", {})
-TOKEN = config.get("telegram_bot_token", "")
-
-def setup_telegram_commands():
-    """Initialize Telegram bot and register commands."""
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("lastmatch", last_match_command))
-    updater.start_polling()
-    log("Telegram bot commands are running...")
-    return updater
+TOKEN = config.get("telegram_bot_token")
 
 async def main():
     log("Starting bot...")
 
-    # Start Telegram bot commands
-    telegram_updater = setup_telegram_commands()
-    
+    # Start Telegram bot
+    telegram_app = setup_telegram_commands()
+    asyncio.create_task(telegram_app.run_polling())  # Run Telegram bot asynchronously
+
     # Run initial cache update
     log("Updating full cache...")
     await update_cache()
@@ -42,6 +33,16 @@ async def main():
         start_notify_game(),
         start_track_dota()
     )
+
+def setup_telegram_commands():
+    """Setup Telegram bot and command handlers."""
+    app = Application.builder().token(TOKEN).build()
+
+    # Register commands
+    app.add_handler(CommandHandler("lastmatch", last_match_command))
+
+    log("Telegram bot is ready.")
+    return app
 
 async def schedule_cache_updates():
     """Update full cache (heroes, items, patches, player data) every 6 hours."""
