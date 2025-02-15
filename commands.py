@@ -85,8 +85,7 @@ async def last_match_command(update: Update, context: CallbackContext):
     message = await get_last_match_data()
     await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
 
-# Command handler for /lastmatch and /lm
-def add_handlers(dispatcher):
+def setup_command_handlers(dispatcher):
+    """Setup command handlers for the Telegram bot."""
     dispatcher.add_handler(CommandHandler("lastmatch", last_match_command))
     dispatcher.add_handler(CommandHandler("lm", last_match_command))
-
