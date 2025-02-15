@@ -89,7 +89,7 @@ async def cache_patches(session):
 
 async def cache_player_data(session, steam_id):
     """Fetch and cache player data including last match ID."""
-    account_id = steam_id _to_account_id(steam_id)
+    account_id = steam_id_to_account_id(steam_id)
     player_file = PLAYERS_DIR / f"{steam_id}.json"
     player_data = load_cache(player_file)
 
