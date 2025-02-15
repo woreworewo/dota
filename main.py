@@ -1,4 +1,7 @@
 import asyncio
+import nest_asyncio
+nest_asyncio.apply()  # Allow nested event loops in cPanel/Jupyter environments
+
 from telegram.ext import Application, CommandHandler
 from cache_manager import update_cache, cache_player_data
 from notify_game import start_notify_game
@@ -34,7 +37,7 @@ async def main():
     asyncio.create_task(start_notify_game())
     asyncio.create_task(start_track_dota())
 
-    # Run bot polling (it manages its own event loop)
+    # Run bot polling
     await application.run_polling()
 
 async def schedule_cache_updates():
@@ -55,4 +58,10 @@ async def check_new_matches():
         await asyncio.sleep(5 * 60)  # Wait 5 minutes
 
 if __name__ == "__main__":
-    asyncio.run(main())  # Correctly runs the bot with a clean event loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(main())  # Run the bot without event loop conflicts
