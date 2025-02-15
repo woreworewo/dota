@@ -1,9 +1,10 @@
 import aiohttp
 import asyncio
 import json
-import random
+import time
 from pathlib import Path
 from utils import steam_id_to_account_id, log, load_config, get_current_time
+from asyncio import Queue
 
 API_BASE_URL = "https://api.opendota.com/api"
 CACHE_DIR = Path("cache")
@@ -21,17 +22,15 @@ CACHE_FILES = {
     "patches": CACHE_DIR / "patches.json"
 }
 
-# Free Proxy Pool (Replace with working ones)
-PROXIES = [
-    "http://proxy1:port",
-    "http://proxy2:port",
-    "http://proxy3:port",
-    "http://proxy4:port"
-]
-
 # Load config
 config = load_config()
 tracked_players = config.get("steam_user", {})
+
+# Rate limiting setup
+RATE_LIMIT = 60  # 60 requests per minute
+request_queue = Queue()
+last_request_time = time.time()
+requests_sent = 0
 
 def load_cache(file_path):
     """Load cache from JSON file, return empty dict if file is missing or corrupted."""
@@ -51,30 +50,45 @@ def save_cache(file_path, data):
     except OSError as e:
         log(f"[{get_current_time()}] Error saving cache {file_path}: {e}", "error")
 
+async def rate_limit_check():
+    """Ensures we respect the rate limit of 60 requests per minute."""
+    global requests_sent, last_request_time
+
+    while True:
+        # Check the number of requests sent within the last minute
+        if time.time() - last_request_time > 60:
+            last_request_time = time.time()
+            requests_sent = 0
+
+        if requests_sent >= RATE_LIMIT:
+            sleep_time = 60 - (time.time() - last_request_time)
+            log(f"[{get_current_time()}] Rate limit reached, sleeping for {sleep_time:.2f} seconds...", "warning")
+            await asyncio.sleep(sleep_time)
+        
+        # Dequeue and send the request
+        await request_queue.get()
+        requests_sent += 1
+        await asyncio.sleep(1)  # Small delay to avoid burst traffic
+
 async def fetch_data(session, url, retries=3):
-    """Fetch data from API using proxy rotation, retrying on failure."""
+    """Fetch data from API with retry mechanism and exponential backoff."""
+    await request_queue.put(1)  # Enqueue the request
+
     for attempt in range(retries):
-        proxy = random.choice(PROXIES)  # Pick a random proxy
-        proxy_connector = aiohttp.ProxyConnector.from_url(proxy)  # Set proxy
-        
-        async with aiohttp.ClientSession(connector=proxy_connector) as proxy_session:
-            try:
-                async with proxy_session.get(url, timeout=10) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    elif response.status == 429:
-                        retry_after = int(response.headers.get("Retry-After", 10))
-                        log(f"[{get_current_time()}] Rate-limited by OpenDota API. Retrying in {retry_after} seconds...", "warning")
-                        await asyncio.sleep(retry_after)
-                    else:
-                        log(f"[{get_current_time()}] Attempt {attempt + 1}: Proxy {proxy} failed - Status {response.status}", "warning")
-            except aiohttp.ClientError as e:
-                log(f"[{get_current_time()}] Attempt {attempt + 1}: Proxy {proxy} error: {e}", "error")
-        
+        try:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    return await response.json()
+                elif response.status == 429:
+                    retry_after = int(response.headers.get("Retry-After", 10))  # Default to 10s
+                    log(f"[{get_current_time()}] Rate-limited by OpenDota API. Retrying in {retry_after} seconds...", "warning")
+                    await asyncio.sleep(retry_after)
+                else:
+                    log(f"[{get_current_time()}] Attempt {attempt + 1}: Failed to fetch {url} - Status Code: {response.status}", "warning")
+        except aiohttp.ClientError as e:
+            log(f"[{get_current_time()}] Attempt {attempt + 1}: Network error while fetching {url}: {e}", "error")
         await asyncio.sleep(2 ** attempt)  # Exponential backoff (2, 4, 8 sec)
-    
-    log(f"[{get_current_time()}] All proxies failed for {url}.", "error")
-    return None  # Return None if all proxies fail
+    return None
 
 async def cache_heroes(session):
     log(f"[{get_current_time()}] Fetching hero data...")
@@ -146,6 +160,10 @@ async def update_cache():
     log(f"[{get_current_time()}] Starting cache update...")
 
     async with aiohttp.ClientSession() as session:
+        # Start rate limiting task
+        asyncio.create_task(rate_limit_check())
+
+        # Update all cache in parallel
         await asyncio.gather(
             cache_heroes(session),
             cache_items(session),
