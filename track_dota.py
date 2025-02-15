@@ -22,21 +22,25 @@ notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 config = load_config()
 STEAM_USERS = config.get("steam_user", {})
 
-PLAYTIME_FILE = "playtime_data.json"
+# Directory for player-specific playtime files
+PLAYTIME_DIR = "playtime"
 
-# Load or initialize stored playtime data
-def load_playtime_data():
-    if os.path.exists(PLAYTIME_FILE):
-        with open(PLAYTIME_FILE, "r") as file:
+if not os.path.exists(PLAYTIME_DIR):
+    os.makedirs(PLAYTIME_DIR)
+
+# Load player-specific playtime data
+def load_playtime_data(steam_id):
+    file_path = os.path.join(PLAYTIME_DIR, f"{steam_id}.json")
+    if os.path.exists(file_path):
+        with open(file_path, "r") as file:
             return json.load(file)
-    return {}
+    return {"sessions": [], "total": 0}
 
-# Save playtime data to JSON
-def save_playtime_data(data):
-    with open(PLAYTIME_FILE, "w") as file:
+# Save player-specific playtime data
+def save_playtime_data(steam_id, data):
+    file_path = os.path.join(PLAYTIME_DIR, f"{steam_id}.json")
+    with open(file_path, "w") as file:
         json.dump(data, file, indent=4)
-
-dota_playtime = load_playtime_data()
 
 async def fetch_player_summaries():
     """Fetches Steam player summaries using the Steam API with rate-limit handling."""
@@ -80,28 +84,36 @@ async def track_dota_playtime():
             nickname = STEAM_USERS.get(steam_id, f"Unknown ({steam_id})")
 
             if game == "Dota 2":
-                if steam_id not in dota_playtime:
-                    dota_playtime[steam_id] = {"sessions": [], "total": 0}
-                    log(f"{nickname} started playing Dota 2.")
+                playtime_data = load_playtime_data(steam_id)
+                if "sessions" not in playtime_data:
+                    playtime_data["sessions"] = []
+                if "total" not in playtime_data:
+                    playtime_data["total"] = 0
 
                 # Add session start time
-                dota_playtime[steam_id]["sessions"].append({"start": get_current_time().isoformat()})
+                playtime_data["sessions"].append({"start": get_current_time().isoformat()})
+                log(f"{nickname} started playing Dota 2.")
 
-            elif steam_id in dota_playtime:
-                last_session = dota_playtime[steam_id]["sessions"][-1]
-                if "end" not in last_session:
-                    start_time = datetime.fromisoformat(last_session["start"])
-                    play_duration = (get_current_time() - start_time).total_seconds() / 3600
-                    dota_playtime[steam_id]["total"] += play_duration
+                # Save data to player's specific file
+                save_playtime_data(steam_id, playtime_data)
 
-                    last_session["end"] = get_current_time().isoformat()
-                    last_session["duration"] = round(play_duration, 2)
+            elif steam_id in STEAM_USERS:
+                playtime_data = load_playtime_data(steam_id)
+                if playtime_data["sessions"]:
+                    last_session = playtime_data["sessions"][-1]
+                    if "end" not in last_session:
+                        start_time = datetime.fromisoformat(last_session["start"])
+                        play_duration = (get_current_time() - start_time).total_seconds() / 3600
+                        playtime_data["total"] += play_duration
 
-                    total_playtime = round(dota_playtime[steam_id]["total"], 2)
-                    log(f"{nickname} stopped playing. Session: {round(play_duration, 2)}h. Total: {total_playtime}h.")
+                        last_session["end"] = get_current_time().isoformat()
+                        last_session["duration"] = round(play_duration, 2)
 
-                    # Save data to file
-                    save_playtime_data(dota_playtime)
+                        total_playtime = round(playtime_data["total"], 2)
+                        log(f"{nickname} stopped playing. Session: {round(play_duration, 2)}h. Total: {total_playtime}h.")
+
+                        # Save data to player's specific file
+                        save_playtime_data(steam_id, playtime_data)
 
         await asyncio.sleep(60)
 
@@ -113,26 +125,25 @@ async def send_daily_report():
             message = "*Dota 2 Playtime Yesterday*\n"
             cutoff_date = now - timedelta(days=30)
 
-            for steam_id, data in list(dota_playtime.items()):
+            for steam_id in STEAM_USERS.keys():
+                playtime_data = load_playtime_data(steam_id)
+
                 # Remove old sessions
-                data["sessions"] = [s for s in data["sessions"] if datetime.fromisoformat(s["start"]) >= cutoff_date]
-                data["total"] = sum(s["duration"] for s in data["sessions"] if "duration" in s)
+                playtime_data["sessions"] = [s for s in playtime_data["sessions"] if datetime.fromisoformat(s["start"]) >= cutoff_date]
+                playtime_data["total"] = sum(s["duration"] for s in playtime_data["sessions"] if "duration" in s)
 
                 nickname = STEAM_USERS.get(steam_id, f"Unknown ({steam_id})")
-                total_playtime = round(data["total"], 2)
+                total_playtime = round(playtime_data["total"], 2)
                 message += f"- *{nickname}:* {total_playtime} hours\n"
 
                 # If no recent sessions, remove player from tracking
-                if not data["sessions"]:
-                    del dota_playtime[steam_id]
+                if not playtime_data["sessions"]:
+                    os.remove(os.path.join(PLAYTIME_DIR, f"{steam_id}.json"))
 
             # Send report if there's data
-            if dota_playtime:
+            if message.strip() != "*Dota 2 Playtime Yesterday*\n":
                 await notifier.send_message(message)
                 log("Sent daily playtime report.")
-
-            # Save cleaned-up data
-            save_playtime_data(dota_playtime)
 
         await asyncio.sleep(60)
 
