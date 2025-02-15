@@ -1,10 +1,8 @@
 import aiohttp
 import asyncio
 import json
-import time
 from pathlib import Path
 from utils import steam_id_to_account_id, log, load_config, get_current_time
-from asyncio import Queue
 
 API_BASE_URL = "https://api.opendota.com/api"
 CACHE_DIR = Path("cache")
@@ -26,15 +24,6 @@ CACHE_FILES = {
 config = load_config()
 tracked_players = config.get("steam_user", {})
 
-# Rate limiting setup
-DAILY_LIMIT = 2000  # 2,000 free calls per day
-RATE_LIMIT = 60  # 60 requests per minute
-request_queue = Queue()
-last_request_time = time.time()
-requests_sent = 0
-daily_requests_sent = 0
-last_reset_time = time.time()
-
 def load_cache(file_path):
     """Load cache from JSON file, return empty dict if file is missing or corrupted."""
     if file_path.exists():
@@ -53,43 +42,11 @@ def save_cache(file_path, data):
     except OSError as e:
         log(f"[{get_current_time()}] Error saving cache {file_path}: {e}", "error")
 
-async def rate_limit_check():
-    """Ensures we respect the rate limit of 60 requests per minute and 2000 daily calls."""
-    global requests_sent, last_request_time, daily_requests_sent, last_reset_time
-
-    while True:
-        current_time = time.time()
-        
-        # Reset the daily limit at midnight
-        if current_time - last_reset_time >= 86400:
-            last_reset_time = current_time
-            daily_requests_sent = 0
-            log(f"[{get_current_time()}] Daily limit reset.")
-        
-        # Check the number of requests sent within the last minute
-        if current_time - last_request_time > 60:
-            last_request_time = current_time
-            requests_sent = 0
-
-        if daily_requests_sent >= DAILY_LIMIT:
-            sleep_time = 86400 - (current_time - last_reset_time)  # Sleep until the next day
-            log(f"[{get_current_time()}] Daily API limit reached, sleeping for {sleep_time:.2f} seconds...", "warning")
-            await asyncio.sleep(sleep_time)
-        
-        if requests_sent >= RATE_LIMIT:
-            sleep_time = 60 - (current_time - last_request_time)
-            log(f"[{get_current_time()}] Rate limit reached, sleeping for {sleep_time:.2f} seconds...", "warning")
-            await asyncio.sleep(sleep_time)
-
-        # Dequeue and send the request
-        await request_queue.get()
-        requests_sent += 1
-        daily_requests_sent += 1
-        await asyncio.sleep(1)  # Small delay to avoid burst traffic
-
 async def fetch_data(session, url, retries=3):
     """Fetch data from API with retry mechanism and exponential backoff."""
-    await request_queue.put(1)  # Enqueue the request
+    if session is None:
+        async with aiohttp.ClientSession() as temp_session:
+            return await fetch_data(temp_session, url, retries)
 
     for attempt in range(retries):
         try:
@@ -98,7 +55,7 @@ async def fetch_data(session, url, retries=3):
                     return await response.json()
                 elif response.status == 429:
                     retry_after = int(response.headers.get("Retry-After", 10))  # Default to 10s
-                    log(f"[{get_current_time()}] Rate-limited by OpenDota API. Retrying in {retry_after} seconds...", "warning")
+                    log(f"[{get_current_time()}] Rate limited. Retrying in {retry_after} seconds...", "warning")
                     await asyncio.sleep(retry_after)
                 else:
                     log(f"[{get_current_time()}] Attempt {attempt + 1}: Failed to fetch {url} - Status Code: {response.status}", "warning")
@@ -145,18 +102,38 @@ async def cache_player_data(session, steam_id):
     if wl_data:
         player_data["win_loss"] = wl_data
 
+    # Fetch recent matches to determine last match ID
+    recent_matches = await fetch_data(session, f"{API_BASE_URL}/players/{account_id}/recentMatches")
+    if recent_matches:
+        latest_match_id = recent_matches[0]["match_id"]
+        previous_match_id = player_data.get("last_match_id")
+
+        # Only fetch match data if it's a new match
+        if latest_match_id != previous_match_id:
+            await cache_match_data(session, latest_match_id)  # Fetch match data if not cached
+            player_data["last_match_id"] = latest_match_id  # Update last match ID
+
     save_cache(player_file, player_data)
     log(f"[{get_current_time()}] Player data cached: {steam_id}")
 
+async def cache_match_data(session, match_id):
+    """Fetch and cache match details only if not already cached."""
+    match_file = MATCHES_DIR / f"{match_id}.json"
+    if match_file.exists():
+        log(f"[{get_current_time()}] Skipping match {match_id}, already cached.")
+        return
+
+    log(f"[{get_current_time()}] Fetching match data for Match ID: {match_id}...")
+    match_data = await fetch_data(session, f"{API_BASE_URL}/matches/{match_id}")
+    if match_data:
+        save_cache(match_file, match_data)
+        log(f"[{get_current_time()}] Match data cached: {match_id}")
+
 async def update_cache():
-    """Update all caches in parallel except last match data."""
+    """Update all caches in parallel using a single session."""
     log(f"[{get_current_time()}] Starting cache update...")
 
     async with aiohttp.ClientSession() as session:
-        # Start rate limiting task
-        asyncio.create_task(rate_limit_check())
-
-        # Update all cache in parallel
         await asyncio.gather(
             cache_heroes(session),
             cache_items(session),
@@ -166,10 +143,6 @@ async def update_cache():
 
     log(f"[{get_current_time()}] Cache update completed.")
 
-# Add the update cache command handler
-async def handle_update_cache_command():
-    """Handle the update cache command."""
-    await update_cache()
-
 if __name__ == "__main__":
-    asyncio.run(handle_update_cache_command())
+    # Do not run update_cache on startup
+    pass
