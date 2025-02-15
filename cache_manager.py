@@ -44,6 +44,10 @@ def save_cache(file_path, data):
 
 async def fetch_data(session, url, retries=3):
     """Fetch data from API with retry mechanism and exponential backoff."""
+    if session is None:
+        async with aiohttp.ClientSession() as temp_session:
+            return await fetch_data(temp_session, url, retries)
+
     for attempt in range(retries):
         try:
             async with session.get(url) as response:
