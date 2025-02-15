@@ -1,5 +1,5 @@
 import os
-import json
+import re
 import requests
 import time
 from dotenv import load_dotenv
@@ -22,11 +22,13 @@ def send_to_telegram(text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {
         "chat_id": LOG_CHAT_ID,
-        "text": f"*Log Update:*\n```{text}```",
+        "text": text,
         "parse_mode": "MarkdownV2"
     }
-    response = requests.post(url, data=data)
-    print(response.json())  # Debugging
+    requests.post(url, data=data)
+
+# Regex to remove timestamps
+TIMESTAMP_REGEX = r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] "
 
 # Monitor log file and send updates
 def tail_log():
@@ -35,7 +37,8 @@ def tail_log():
         while True:
             line = file.readline()
             if line:
-                send_to_telegram(line.strip())
+                cleaned_line = re.sub(TIMESTAMP_REGEX, "", line.strip())  # Remove timestamp
+                send_to_telegram(cleaned_line)
             time.sleep(1)
 
 if __name__ == "__main__":
