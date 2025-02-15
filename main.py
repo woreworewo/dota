@@ -1,29 +1,33 @@
 import asyncio
 import nest_asyncio
-nest_asyncio.apply()  # Allow nested event loops in cPanel/Jupyter environments
-
-from telegram.ext import Application, CommandHandler
 from cache_manager import update_cache, cache_player_data
 from notify_game import start_notify_game
 from track_dota import start_track_dota
+from commands import last_match_command
 from utils import log, load_config
-from commands import last_match_command  # Import last match command
+from telegram import Bot
+from telegram.ext import Updater, CommandHandler
 
 # Load config
 config = load_config()
 tracked_players = config.get("steam_user", {})
+TOKEN = config.get("telegram_bot_token", "")
 
-TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"  # Replace with your actual token
+def setup_telegram_commands():
+    """Initialize Telegram bot and register commands."""
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("lastmatch", last_match_command))
+    updater.start_polling()
+    log("Telegram bot commands are running...")
+    return updater
 
 async def main():
     log("Starting bot...")
 
-    # Initialize Telegram bot
-    application = Application.builder().token(TOKEN).build()
-
-    # Register commands
-    application.add_handler(CommandHandler("lastmatch", last_match_command))
-
+    # Start Telegram bot commands
+    telegram_updater = setup_telegram_commands()
+    
     # Run initial cache update
     log("Updating full cache...")
     await update_cache()
@@ -34,11 +38,10 @@ async def main():
 
     # Start other modules
     log("Starting game tracking modules...")
-    asyncio.create_task(start_notify_game())
-    asyncio.create_task(start_track_dota())
-
-    # Run bot polling
-    await application.run_polling()
+    await asyncio.gather(
+        start_notify_game(),
+        start_track_dota()
+    )
 
 async def schedule_cache_updates():
     """Update full cache (heroes, items, patches, player data) every 6 hours."""
@@ -58,10 +61,6 @@ async def check_new_matches():
         await asyncio.sleep(5 * 60)  # Wait 5 minutes
 
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(main())  # Run the bot without event loop conflicts
+    nest_asyncio.apply()  # Prevent event loop conflicts
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
