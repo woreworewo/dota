@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
-from utils import load_config
+from utils import load_config, cache_manager  # Assuming cache_manager is imported
 
 CACHE_DIR = Path("cache/matches")
 HEROES_FILE = Path("cache/heroes.json")
@@ -166,6 +166,19 @@ async def last_match_command(update: Update, context: CallbackContext):
     message = await get_last_match_data()
     await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
 
+async def update_cache(update: Update, context: CallbackContext):
+    """Update the cache data, except the last match."""
+    try:
+        # Update hero data and any other necessary cache (except last match)
+        heroes_dict = load_heroes()  # Refresh hero data
+        cache_manager.update_hero_cache(heroes_dict)  # Assuming cache_manager has a method to update the heroes cache
+        
+        # You can add more cache updates here as necessary.
+        
+        await update.message.reply_text("Cache updated successfully, excluding the last match data.")
+    except Exception as e:
+        await update.message.reply_text(f"Error updating cache: {e}")
+
 def setup_command_handlers(dispatcher):
     """Setup command handlers for the Telegram bot."""
     dispatcher.add_handler(CommandHandler("lastmatch", last_match_command))
@@ -173,3 +186,4 @@ def setup_command_handlers(dispatcher):
     dispatcher.add_handler(CommandHandler("track", track_player))
     dispatcher.add_handler(CommandHandler("untrack", untrack_player))
     dispatcher.add_handler(CommandHandler("nickname", change_nickname))
+    dispatcher.add_handler(CommandHandler("update", update_cache))  # Added the new update command
