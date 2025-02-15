@@ -21,24 +21,21 @@ async def main():
     # Register commands
     application.add_handler(CommandHandler("lastmatch", last_match_command))
 
-    # Start bot polling
-    bot_task = asyncio.create_task(application.run_polling())
-
     # Run initial cache update
     log("Updating full cache...")
     await update_cache()
 
     # Start periodic tasks
     asyncio.create_task(schedule_cache_updates())  # Full update every 6 hours
-    asyncio.create_task(check_new_matches())  # Player match updates every 10 minutes
+    asyncio.create_task(check_new_matches())  # Player match updates every 5 minutes
 
     # Start other modules
     log("Starting game tracking modules...")
-    await asyncio.gather(
-        start_notify_game(),
-        start_track_dota(),
-        bot_task  # Ensure bot runs as part of async tasks
-    )
+    asyncio.create_task(start_notify_game())
+    asyncio.create_task(start_track_dota())
+
+    # Run bot polling without creating a new event loop
+    await application.run_polling()
 
 async def schedule_cache_updates():
     """Update full cache (heroes, items, patches, player data) every 6 hours."""
@@ -58,5 +55,10 @@ async def check_new_matches():
         await asyncio.sleep(5 * 60)  # Wait 5 minutes
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
+    try:
+        loop = asyncio.get_running_loop()  # Use existing event loop if available
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     loop.run_until_complete(main())
