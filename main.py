@@ -21,19 +21,15 @@ if not TOKEN or ":" not in TOKEN:
     raise ValueError("Invalid or missing Telegram bot token! Please check your .env or config.json")
 
 async def main():
-    """Main function to start the bot and all its components."""
     log("Starting bot...")
 
-    # Setup and start the Telegram bot
-    telegram_app = setup_telegram_commands()
-    asyncio.create_task(run_telegram_bot(telegram_app))
-
-    # Run initial cache update
-    log("Updating full cache...")
-    await update_cache()
+    # Start Telegram bot in a separate thread
+    telegram_app = setup_telegram_commands()  # This will setup the commands
+    loop = asyncio.get_event_loop()
+    loop.create_task(run_telegram_bot(telegram_app))
 
     # Start periodic tasks
-    asyncio.create_task(schedule_cache_updates())  # Full update every 6 hours
+    asyncio.create_task(schedule_cache_updates())  # Full update every 30 days
     asyncio.create_task(check_new_matches())  # Player match updates every 5 minutes
 
     # Start other modules
@@ -53,40 +49,33 @@ def setup_telegram_commands():
 async def run_telegram_bot(app):
     """Run Telegram bot polling in an async function."""
     log("Starting Telegram bot polling...")
-    try:
-        await app.run_polling()
-    except Exception as e:
-        log(f"Error in Telegram bot polling: {e}", "error")
-        raise
-
+    await app.run_polling()
+        
 async def schedule_cache_updates():
-    """Update full cache (heroes, items, patches, player data) every 6 hours."""
+    """Update full cache (heroes, items, patches, player data) every 30 days."""
+    await asyncio.sleep(30 * 24 * 60 * 60)  # Wait 30 days before the first update
     while True:
-        try:
-            log("Scheduled full cache update triggered.")
-            await update_cache()
-            log("Full cache update completed.")
-        except Exception as e:
-            log(f"Error during full cache update: {e}", "error")
-        await asyncio.sleep(6 * 60 * 60)  # Wait 6 hours
+        log("Scheduled full cache update triggered.")
+        await update_cache()
+        log("Full cache update completed.")
+        await asyncio.sleep(30 * 24 * 60 * 60)  # Wait 30 days
 
 async def check_new_matches():
     """Update only tracked players' matches every 5 minutes."""
+    await asyncio.sleep(5 * 60)  # Wait 5 minutes before the first check
     while True:
         try:
             log("Checking for new matches...")
             async with asyncio.Semaphore(2):  # Limit concurrent requests
-                await asyncio.gather(*(cache_player_data(None, player) for player in tracked_players))
+                # Fetch and cache player data for all tracked players
+                tasks = [cache_player_data(None, player) for player in tracked_players]
+                await asyncio.gather(*tasks)
             log("Match check completed. Waiting 5 minutes...")
         except Exception as e:
             log(f"Error during match check: {e}", "error")
-        await asyncio.sleep(5 * 60)  # Wait 5 minutes
+        finally:
+            await asyncio.sleep(5 * 60)  # Wait 5 minutes before the next check
 
 if __name__ == "__main__":
     nest_asyncio.apply()  # Prevent event loop conflicts
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        log("Bot stopped by user.")
-    except Exception as e:
-        log(f"Unexpected error in main: {e}", "error")
+    asyncio.run(main())
