@@ -3,6 +3,8 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 from utils import load_config
+from cache_manager import update_cache
+from datetime import datetime, timedelta
 
 CACHE_DIR = Path("cache/matches")
 HEROES_FILE = Path("cache/heroes.json")
@@ -109,6 +111,25 @@ async def change_nickname(update: Update, context: CallbackContext):
 
     await update.message.reply_text(f"Nickname for {current_nickname} updated to {new_nickname}")
 
+last_update_time = None  # To track the last time the update was triggered
+cooldown_time = timedelta(minutes=10)  # 10 minutes cooldown
+
+async def update_cache_command(update: Update, context: CallbackContext):
+    global last_update_time
+    now = datetime.now()
+
+    if last_update_time and now - last_update_time < cooldown_time:
+        await update.message.reply_text("The cache update was recently done. Please try again later.")
+        return
+
+    await update.message.reply_text("Starting cache update...")
+    try:
+        await update_cache()  # Call update_cache from cache_manager.py
+        last_update_time = now  # Update the last update time
+        await update.message.reply_text("Cache update completed successfully!")
+    except Exception as e:
+        await update.message.reply_text(f"Error during cache update: {e}")
+
 async def get_last_match_data():
     """Fetch the latest match data from cache/matches/."""
     try:
@@ -173,3 +194,4 @@ def setup_command_handlers(dispatcher):
     dispatcher.add_handler(CommandHandler("track", track_player))
     dispatcher.add_handler(CommandHandler("untrack", untrack_player))
     dispatcher.add_handler(CommandHandler("nickname", change_nickname))
+    dispatcher.add_handler(CommandHandler("update", update_cache_command))
