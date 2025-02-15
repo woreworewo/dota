@@ -6,8 +6,9 @@ from utils import load_config
 from cache_manager import update_cache
 from datetime import datetime, timedelta
 
-CACHE_DIR = Path("cache/matches")
-HEROES_FILE = Path("cache/heroes.json")
+# Correct path for matches and heroes
+CACHE_DIR = Path("cache/matches")  # Ensure this matches with your cache structure for matches
+HEROES_FILE = Path("cache/heroes.json")  # Same for heroes.json
 
 # Load tracked players from config
 config = load_config()
@@ -45,71 +46,6 @@ def update_config(new_data):
         return "Config updated successfully!"
     except Exception as e:
         return f"Error updating config: {e}"
-
-async def track_player(update: Update, context: CallbackContext):
-    """Track a player by Steam 64-bit ID."""
-    if len(context.args) != 2:
-        await update.message.reply_text("Usage: /track <steam_id> <nickname>")
-        return
-    
-    steam_id = context.args[0]
-    nickname = context.args[1]
-    
-    # Check if player is already tracked
-    if steam_id in tracked_players_64:
-        await update.message.reply_text(f"{nickname} is already being tracked.")
-        return
-    
-    # Add player to the config file
-    tracked_players_64[steam_id] = nickname
-    update_config({"steam_user": tracked_players_64})
-    
-    await update.message.reply_text(f"Now tracking {nickname} (Steam ID: {steam_id})")
-
-async def untrack_player(update: Update, context: CallbackContext):
-    """Untrack a player by Steam 64-bit ID."""
-    if len(context.args) != 1:
-        await update.message.reply_text("Usage: /untrack <steam_id>")
-        return
-    
-    steam_id = context.args[0]
-    
-    # Check if player is being tracked
-    if steam_id not in tracked_players_64:
-        await update.message.reply_text(f"No player found with Steam ID: {steam_id}")
-        return
-    
-    # Remove player from the config file
-    del tracked_players_64[steam_id]
-    update_config({"steam_user": tracked_players_64})
-    
-    await update.message.reply_text(f"Stopped tracking player with Steam ID: {steam_id}")
-
-async def change_nickname(update: Update, context: CallbackContext):
-    """Change the nickname of a tracked player."""
-    if len(context.args) != 2:
-        await update.message.reply_text("Usage: /nickname <current_nickname> <new_nickname>")
-        return
-
-    current_nickname = context.args[0]
-    new_nickname = context.args[1]
-
-    # Find the Steam ID corresponding to the current nickname
-    steam_id = None
-    for player_id, nickname in tracked_players_64.items():
-        if nickname == current_nickname:
-            steam_id = player_id
-            break
-
-    if not steam_id:
-        await update.message.reply_text(f"No player found with nickname: {current_nickname}")
-        return
-
-    # Update the nickname in the config file
-    tracked_players_64[steam_id] = new_nickname
-    update_config({"steam_user": tracked_players_64})
-
-    await update.message.reply_text(f"Nickname for {current_nickname} updated to {new_nickname}")
 
 last_update_time = None  # To track the last time the update was triggered
 cooldown_time = timedelta(minutes=10)  # 10 minutes cooldown
@@ -162,7 +98,7 @@ def format_match_stats(match_data):
 
         stats = []
         for p in players:
-            account_id = str(p.get("account_id", ""))
+            account_id = str(p.get("account_id", ""))  # Ensure account_id is a string
             if account_id in tracked_players:  # Only include tracked players
                 nickname = tracked_players[account_id]
                 hero_id = p.get("hero_id", -1)  # Use hero_id instead of hero_name
