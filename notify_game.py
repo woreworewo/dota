@@ -2,7 +2,7 @@ import os
 import aiohttp
 import asyncio
 import random
-from utils import log, TelegramNotifier
+from utils import log, TelegramNotifier, load_config
 
 # Load required environment variables
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -12,26 +12,23 @@ STEAM_API_KEY = os.getenv("STEAM_API_KEY")
 if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     raise ValueError("Missing Telegram bot token or chat ID in environment variables.")
 
+if not STEAM_API_KEY:
+    raise ValueError("Missing Steam API key in environment variables.")
+
 notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 player_status = {}
 
-# Steam users should still come from config.json
-from utils import load_config
+# Load Steam users from config.json
 config = load_config()
 STEAM_USERS = config.get("steam_user", {})
 
 async def fetch_player_summaries():
-    """Fetches Steam player summaries using the Steam API with rate limiting."""
+    """Fetch Steam player summaries using the Steam API with rate limiting."""
     if not STEAM_USERS:
         log("No Steam users configured to track.", "warning")
         return []
 
     steam_ids = ",".join(STEAM_USERS.keys())
-
-    if not STEAM_API_KEY:
-        log("Missing Steam API key in environment variables.", "error")
-        return []
-
     url = f"http://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key={STEAM_API_KEY}&steamids={steam_ids}"
 
     retries = 5
@@ -54,7 +51,7 @@ async def fetch_player_summaries():
     return []
 
 async def check_game_status():
-    """Checks and notifies when a player starts playing a game."""
+    """Check and notify when a player starts playing a new game."""
     while True:
         players = await fetch_player_summaries()
         if not players:
@@ -63,26 +60,28 @@ async def check_game_status():
             continue
 
         for player in players:
-            steam_id = player["steamid"]
-            game = player.get("gameextrainfo", None)
+            steam_id = player.get("steamid")
+            if not steam_id:
+                continue
+
+            game = player.get("gameextrainfo")
             nickname = STEAM_USERS.get(steam_id, f"Unknown ({steam_id})")
 
-            # First-time check, store the game status without notifying
             if steam_id not in player_status:
-                player_status[steam_id] = game
+                player_status[steam_id] = game  # Store initial state without notifying
                 continue  
 
-            previous_game = player_status[steam_id]
+            previous_game = player_status.get(steam_id)
 
             if game and game != previous_game:
                 log(f"{nickname} is now playing {game}.", "info")
                 await notifier.send_message(f"*{nickname}* is now playing *{game}*.")
 
-            player_status[steam_id] = game
+            player_status[steam_id] = game  # Update tracked status
 
         await asyncio.sleep(60)
 
 async def start_notify_game():
-    """Starts the game notification loop."""
+    """Start the game notification loop."""
     log("Starting Steam game status tracking...", "info")
     await check_game_status()
