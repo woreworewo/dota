@@ -1,6 +1,8 @@
 import aiohttp
 import asyncio
 import json
+from telegram import Update
+from telegram.ext import CallbackContext
 from pathlib import Path
 from utils import log, get_current_time
 
@@ -60,7 +62,7 @@ async def fetch_patches(session):
             json.dump(data, f, indent=4)
         log(f"[{get_current_time()}] Patch data updated.")
 
-async def update_static_cache():
+async def update_cache():
     """Update static cache (heroes, items, patches)."""
     log(f"[{get_current_time()}] Starting static cache update...")
 
@@ -77,7 +79,7 @@ async def update_cache_command(update: Update, context: CallbackContext):
     """Trigger the static cache update."""
     await update.message.reply_text("Starting static cache update...")
     try:
-        await update_static_cache()  # Trigger the static cache update
+        await update_cache()  # Trigger the static cache update
         await update.message.reply_text("Static cache update completed successfully!")
     except Exception as e:
         await update.message.reply_text(f"Error during static cache update: {e}")
