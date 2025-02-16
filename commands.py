@@ -6,9 +6,11 @@ from utils import load_config
 from cache_manager import update_cache
 from datetime import datetime, timedelta
 
-# Correct path for matches and heroes
-CACHE_DIR = Path("cache/matches")  # Ensure this matches with your cache structure for matches
-HEROES_FILE = Path("cache/heroes.json")  # Same for heroes.json
+# Ensure cache directory exists
+CACHE_DIR = Path("cache/matches")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+HEROES_FILE = Path("cache/heroes.json")
 
 # Load tracked players from config
 config = load_config()
@@ -28,7 +30,6 @@ def load_heroes():
         print(f"Error loading heroes: {e}")
         return {}
 
-# Hero dictionary (id -> hero name)
 heroes_dict = load_heroes()
 
 # Update the config file with new data
@@ -37,31 +38,31 @@ def update_config(new_data):
     try:
         with open('config.json', 'r', encoding='utf-8') as f:
             config_data = json.load(f)
-        
+
         config_data.update(new_data)
-        
+
         with open('config.json', 'w', encoding='utf-8') as f:
             json.dump(config_data, f, indent=4)
-        
+
         return "Config updated successfully!"
     except Exception as e:
         return f"Error updating config: {e}"
 
-last_update_time = None  # To track the last time the update was triggered
-cooldown_time = timedelta(minutes=10)  # 10 minutes cooldown
+last_update_time = None  # To track last update time
+cooldown_time = timedelta(minutes=10)  # 10-minute cooldown
 
 async def update_cache_command(update: Update, context: CallbackContext):
     global last_update_time
     now = datetime.now()
 
     if last_update_time and now - last_update_time < cooldown_time:
-        await update.message.reply_text("The cache update was recently done. Please try again later.")
+        await update.message.reply_text("Cache update was recently done. Please try again later.")
         return
 
     await update.message.reply_text("Starting cache update...")
     try:
         await update_cache()  # Call update_cache from cache_manager.py
-        last_update_time = now  # Update the last update time
+        last_update_time = now  # Update last update time
         await update.message.reply_text("Cache update completed successfully!")
     except Exception as e:
         await update.message.reply_text(f"Error during cache update: {e}")
@@ -122,6 +123,16 @@ async def last_match_command(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     message = await get_last_match_data()
     await context.bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+
+# Placeholder functions for missing handlers
+async def track_player(update: Update, context: CallbackContext):
+    await update.message.reply_text("Tracking feature is not implemented yet.")
+
+async def untrack_player(update: Update, context: CallbackContext):
+    await update.message.reply_text("Untracking feature is not implemented yet.")
+
+async def change_nickname(update: Update, context: CallbackContext):
+    await update.message.reply_text("Nickname change feature is not implemented yet.")
 
 def setup_command_handlers(dispatcher):
     """Setup command handlers for the Telegram bot."""
