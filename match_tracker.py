@@ -50,7 +50,7 @@ async def save_match_data(data):
         await asyncio.to_thread(write_to_file)
         log(f"New match saved: {file_path}")
 
-async def track_matches_periodically(steam_id, interval=300):
+async def track_matches_periodically(steam_id, interval=60):
     """Periodically fetch and process match data."""
     while True:
         log(f"Checking for new matches for Steam ID: {steam_id}...")
