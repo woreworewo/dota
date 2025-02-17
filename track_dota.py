@@ -72,8 +72,12 @@ async def fetch_player_summaries():
 
 async def track_dota_playtime():
     """Tracks the playtime of Dota 2 players and stores data persistently."""
+    active_players = {}  # Track currently playing players with start time
+
     while True:
         players = await fetch_player_summaries()
+        now = get_current_time()
+
         if not players:
             await asyncio.sleep(60)
             continue
@@ -82,38 +86,42 @@ async def track_dota_playtime():
             steam_id = player["steamid"]
             game = player.get("gameextrainfo", None)
             nickname = STEAM_USERS.get(steam_id, f"Unknown ({steam_id})")
+            playtime_data = load_playtime_data(steam_id)
+
+            if "sessions" not in playtime_data:
+                playtime_data["sessions"] = []
+            if "total" not in playtime_data:
+                playtime_data["total"] = 0
 
             if game == "Dota 2":
-                playtime_data = load_playtime_data(steam_id)
-                if "sessions" not in playtime_data:
-                    playtime_data["sessions"] = []
-                if "total" not in playtime_data:
-                    playtime_data["total"] = 0
+                if steam_id not in active_players:  # Prevent duplicate starts
+                    active_players[steam_id] = now
+                    playtime_data["sessions"].append({"start": now.isoformat()})
+                    log(f"{nickname} started playing Dota 2 at {now}.")
+                    save_playtime_data(steam_id, playtime_data)
 
-                # Add session start time
-                playtime_data["sessions"].append({"start": get_current_time().isoformat()})
-                log(f"{nickname} started playing Dota 2.")
+            elif steam_id in active_players:
+                # Player stopped playing, end session
+                start_time = active_players.pop(steam_id)  # Get start time
+                play_duration_seconds = (now - start_time).total_seconds()
 
-                # Save data to player's specific file
+                # Convert duration to hours, minutes, seconds
+                hours = int(play_duration_seconds // 3600)
+                minutes = int((play_duration_seconds % 3600) // 60)
+                seconds = int(play_duration_seconds % 60)
+
+                duration_formatted = f"{hours}h {minutes}m {seconds}s"
+                play_duration_hours = round(play_duration_seconds / 3600, 2)  # Store in hours
+
+                last_session = playtime_data["sessions"][-1]
+                last_session["end"] = now.isoformat()
+                last_session["duration"] = duration_formatted  # Save detailed duration
+                playtime_data["total"] += play_duration_hours
+
+                total_playtime_hours = round(playtime_data["total"], 2)
+                log(f"{nickname} stopped playing. Session: {duration_formatted}. Total: {total_playtime_hours}h.")
+
                 save_playtime_data(steam_id, playtime_data)
-
-            elif steam_id in STEAM_USERS:
-                playtime_data = load_playtime_data(steam_id)
-                if playtime_data["sessions"]:
-                    last_session = playtime_data["sessions"][-1]
-                    if "end" not in last_session:
-                        start_time = datetime.fromisoformat(last_session["start"])
-                        play_duration = (get_current_time() - start_time).total_seconds() / 3600
-                        playtime_data["total"] += play_duration
-
-                        last_session["end"] = get_current_time().isoformat()
-                        last_session["duration"] = round(play_duration, 2)
-
-                        total_playtime = round(playtime_data["total"], 2)
-                        log(f"{nickname} stopped playing. Session: {round(play_duration, 2)}h. Total: {total_playtime}h.")
-
-                        # Save data to player's specific file
-                        save_playtime_data(steam_id, playtime_data)
 
         await asyncio.sleep(60)
 
@@ -124,26 +132,49 @@ async def send_daily_report():
         if now.hour == 8 and now.minute == 0:
             message = "*Dota 2 Playtime Yesterday*\n"
             cutoff_date = now - timedelta(days=30)
+            has_playtime = False  # Track if any player has non-zero playtime
 
             for steam_id in STEAM_USERS.keys():
                 playtime_data = load_playtime_data(steam_id)
 
                 # Remove old sessions
-                playtime_data["sessions"] = [s for s in playtime_data["sessions"] if datetime.fromisoformat(s["start"]) >= cutoff_date]
-                playtime_data["total"] = sum(s["duration"] for s in playtime_data["sessions"] if "duration" in s)
+                playtime_data["sessions"] = [
+                    s for s in playtime_data["sessions"] if datetime.fromisoformat(s["start"]) >= cutoff_date
+                ]
 
-                nickname = STEAM_USERS.get(steam_id, f"Unknown ({steam_id})")
-                total_playtime = round(playtime_data["total"], 2)
-                message += f"- *{nickname}:* {total_playtime} hours\n"
+                # Sum up the total playtime from sessions
+                total_playtime_seconds = sum(
+                    (datetime.fromisoformat(s["end"]) - datetime.fromisoformat(s["start"])).total_seconds()
+                    for s in playtime_data["sessions"] if "end" in s
+                )
+
+                total_playtime_hours = total_playtime_seconds / 3600
+                total_playtime_formatted = f"{int(total_playtime_hours)}h {int((total_playtime_hours * 60) % 60)}m {int((total_playtime_hours * 3600) % 60)}s"
+
+                # Only include players with non-zero playtime
+                if total_playtime_hours > 0:
+                    nickname = STEAM_USERS.get(steam_id, f"Unknown ({steam_id})")
+                    message += f"- *{nickname}:* {total_playtime_formatted}\n"
+                    has_playtime = True  # At least one player has playtime
 
                 # If no recent sessions, remove player from tracking
                 if not playtime_data["sessions"]:
-                    os.remove(os.path.join(PLAYTIME_DIR, f"{steam_id}.json"))
+                    file_path = os.path.join(PLAYTIME_DIR, f"{steam_id}.json")
+                    try:
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                            log(f"Removed old playtime data for {steam_id}.")
+                        else:
+                            log(f"File {file_path} not found, skipping deletion.")
+                    except Exception as e:
+                        log(f"Error deleting file {file_path}: {e}")
 
-            # Send report if there's data
-            if message.strip() != "*Dota 2 Playtime Yesterday*\n":
+            # Send report only if at least one player has playtime
+            if has_playtime:
                 await notifier.send_message(message)
                 log("Sent daily playtime report.")
+            else:
+                log("No playtime recorded, skipping report.")
 
         await asyncio.sleep(60)
 
