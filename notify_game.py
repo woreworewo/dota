@@ -67,18 +67,27 @@ async def check_game_status():
             game = player.get("gameextrainfo")
             nickname = STEAM_USERS.get(steam_id, f"Unknown ({steam_id})")
 
+            # If it's a new player, initialize their game status in player_status
             if steam_id not in player_status:
-                player_status[steam_id] = game  # Store initial state without notifying
+                player_status[steam_id] = game
                 continue  
 
+            # Get the previous game status
             previous_game = player_status.get(steam_id)
 
-            if game and game != previous_game:
-                log(f"{nickname} is now playing {game}.", "info")
-                await notifier.send_message(f"*{nickname}* is now playing *{game}*.")
+            # Check if the player is playing a new game or if their game has changed
+            if game != previous_game:
+                if game:  # If the player is playing a game
+                    log(f"{nickname} is now playing {game}.", "info")
+                    await notifier.send_message(f"*{nickname}* is now playing *{game}*.")
+                else:  # If the player is not playing a game
+                    log(f"{nickname} is no longer playing a game.", "info")
+                    await notifier.send_message(f"*{nickname}* is no longer playing a game.")
 
-            player_status[steam_id] = game  # Update tracked status
+            # Update the player's game status in player_status
+            player_status[steam_id] = game  
 
+        # Wait 60 seconds before checking again
         await asyncio.sleep(60)
 
 async def start_notify_game():
