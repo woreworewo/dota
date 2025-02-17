@@ -75,3 +75,73 @@ class TelegramNotifier:
         async with aiohttp.ClientSession() as session:
             async with session.post(self.api_url, json=payload) as response:
                 return await response.json()
+
+# Add a tracked player to config.json
+def add_tracked_player(steam64_id, nickname):
+    """Adds a player to the tracked players list."""
+    try:
+        config_data = load_config()
+        tracked_players_64 = config_data.get("steam_user", {})
+        
+        if steam64_id in tracked_players_64:
+            raise ValueError(f"Player with Steam64 ID {steam64_id} is already being tracked.")
+        
+        tracked_players_64[steam64_id] = nickname
+        config_data["steam_user"] = tracked_players_64
+        
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=4)
+        
+        log(f"Player {nickname} added to tracked players.")
+    except Exception as e:
+        log(f"Error adding player {nickname}: {e}", level="error")
+        raise e
+
+# Remove a tracked player from config.json
+def remove_tracked_player(steam64_id):
+    """Removes a player from the tracked players list."""
+    try:
+        config_data = load_config()
+        tracked_players_64 = config_data.get("steam_user", {})
+        
+        if steam64_id not in tracked_players_64:
+            raise ValueError(f"Player with Steam64 ID {steam64_id} is not tracked.")
+        
+        del tracked_players_64[steam64_id]
+        config_data["steam_user"] = tracked_players_64
+        
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=4)
+        
+        log(f"Player with Steam64 ID {steam64_id} removed from tracked players.")
+    except Exception as e:
+        log(f"Error removing player with Steam64 ID {steam64_id}: {e}", level="error")
+        raise e
+
+# Change a player's nickname
+def change_player_nickname(nickname, new_nickname):
+    """Changes the nickname of a tracked player."""
+    try:
+        config_data = load_config()
+        tracked_players_64 = config_data.get("steam_user", {})
+        
+        # Find the steam64 ID corresponding to the nickname
+        steam64_id = None
+        for sid, name in tracked_players_64.items():
+            if name == nickname:
+                steam64_id = sid
+                break
+        
+        if not steam64_id:
+            raise ValueError(f"Player with nickname {nickname} is not being tracked.")
+        
+        tracked_players_64[steam64_id] = new_nickname
+        config_data["steam_user"] = tracked_players_64
+        
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config_data, f, indent=4)
+        
+        log(f"Player {nickname} renamed to {new_nickname}.")
+    except Exception as e:
+        log(f"Error renaming player {nickname} to {new_nickname}: {e}", level="error")
+        raise e
