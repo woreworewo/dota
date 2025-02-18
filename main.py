@@ -6,9 +6,11 @@ from dotenv import load_dotenv
 from notify_game import start_notify_game
 from track_dota import start_track_dota
 from utils import log, load_config
-from telegram.ext import Application
+from telegram.ext import Application, CommandHandler  # Import CommandHandler here
 from commands import setup_command_handlers  # Import function to setup commands
 from match_tracker import track_matches_periodically
+from quote import setup_quote_scheduler, setup_quote_command_handlers
+from beban_tracker import beban  # Import /beban command handler
 
 # Load .env
 load_dotenv()
@@ -40,10 +42,18 @@ async def main():
         start_track_dota()
     )
 
+    # Start the quote scheduler to send a random quote daily
+    setup_quote_scheduler()
+
 def setup_telegram_commands():
     """Setup Telegram bot and command handlers."""
     app = Application.builder().token(TOKEN).build()
-    setup_command_handlers(app)  # Register command handlers here
+    setup_command_handlers(app)  # Register other command handlers
+    setup_quote_command_handlers(app)  # Register quote-related command handlers
+    
+    # Add /beban command handler from beban_tracker
+    app.add_handler(CommandHandler("beban", beban))  # Register /beban command handler
+    
     log("Telegram bot is ready.")
     return app
 
